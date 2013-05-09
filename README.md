@@ -13,6 +13,6 @@ sentences with `|||`. Usage:
 #### split_corpora.py
 
 Splits a sentence aligned parallel corpus into two files eliminating the `|||`
-separator. Usage
+separator. Usage:
 
 	python split_corpora.py input_file output_file1 output_file2
