@@ -16,3 +16,9 @@ Splits a sentence aligned parallel corpus into two files eliminating the `|||`
 separator. Usage:
 
 	python split_corpora.py input_file output_file1 output_file2
+
+#### crossing_alignments.py
+
+Counts the number of crossing alignments in an alignment file. Usage:
+
+  python crossing_alignments.py alignment_file
