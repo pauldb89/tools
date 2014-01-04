@@ -18,7 +18,7 @@ def main():
     if num_lines % 10000 == 0:
       sys.stdout.write('.')
       if num_lines % 1000000 == 0:
-        sys.stdout.write('\n')
+        sys.stdout.write(' [%d]\n' % num_lines)
       sys.stdout.flush()
 
   sys.stdout.write('\n')
