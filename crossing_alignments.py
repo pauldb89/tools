@@ -19,6 +19,7 @@ def main():
       sys.stdout.write('.')
       if num_lines % 1000000 == 0:
         sys.stdout.write('\n')
+      sys.stdout.flush()
 
   sys.stdout.write('\n')
   print "Number of crossing aligments:", crossing
