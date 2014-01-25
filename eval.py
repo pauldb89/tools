@@ -20,11 +20,11 @@ def extract_common_phrases(reference, translation):
 
   return common_phrases
 
-def eval_bleu(key, index):
+def eval_bleu(key_type, key, index):
   index = str(index)
   tmp_file = "evals/" + key + "-" + index + ".tmp"
-  os.system("""sed -n """ + index + """,""" + index + """p \
-      data/wmt09/en-de/clean/experiments/dev-""" + key + """-grammars.sgm \
+  os.system("sed -n " + index + "," + index + """p \
+      data/wmt09/en-de/clean/experiments/""" + key_type + "-" + key + """-grammars.sgm \
       > """ + tmp_file)
 
   os.system("rm -r evals/eval." + key + "-" + index + ".* 2> /dev/null")
@@ -47,7 +47,7 @@ def eval_bleu(key, index):
 class TimedProcess(Process):
   def __init__(self, function, task, timeout):
     super(TimedProcess, self).__init__(
-        target=function, args=(task.key, task.index))
+        target=function, args=(task.key_type, task.key, task.index))
     self.task = task
     self.timeout = timeout
 
@@ -59,15 +59,17 @@ class TimedProcess(Process):
     return self.start_time + self.timeout <= current_time
 
 class Task:
-  def __init__(self, key, index, num_retries):
+  def __init__(self, key_type, key, index, num_retries):
+    self.key_type = key_type
     self.key = key
     self.index = index
     self.num_retries = num_retries
 
 class TaskScheduler:
-  def __init__(self, function, key, num_entries, num_processes, max_retries,
-               timeout):
+  def __init__(self, function, key_type, key, num_entries, num_processes,
+               max_retries, timeout):
     self.function = function
+    self.key_type = key_type
     self.key = key
     self.num_entries = num_entries
     self.num_processes = num_processes
@@ -82,7 +84,7 @@ class TaskScheduler:
   def run(self):
     queue = Queue()
     for i in range(1, self.num_entries + 1):
-      queue.put(Task(self.key, i, 0))
+      queue.put(Task(self.key_type, self.key, i, 0))
 
     total_retries = 0
     num_alive_processes = 0
@@ -126,20 +128,23 @@ class TaskScheduler:
 
 def main():
   parser = OptionParser()
-  parser.add_option("-k", "--key", dest="key",
+  parser.add_option("--key", dest="key",
                     help="Key to identify grammar and weights file")
-  parser.add_option("-e", "--entries", dest="entries",
+  parser.add_option("--entries", dest="entries",
                     help="Number of entries for which to compute BLEU")
-  parser.add_option("-p", "--processes", dest="processes", default="20",
+  parser.add_option("--processes", dest="processes", default="20",
                     help="Number of parallel processes")
-  parser.add_option("-r", "--retries", dest="retries", default="3",
+  parser.add_option("--retries", dest="retries", default="3",
                     help="Number of times a failed task is retried")
-  parser.add_option("-t", "--timeout", dest="timeout", default="60",
+  parser.add_option("--timeout", dest="timeout", default="60",
                     help="Timeout in seconds after which a process is killed")
+  parser.add_option("--key_type", dest="key_type", default="dev",
+                    help="Type of test set: dev/devtest")
   (options, args) = parser.parse_args()
 
-  scheduler = TaskScheduler(eval_bleu, options.key, int(options.entries),
-      int(options.processes), int(options.retries), int(options.timeout))
+  scheduler = TaskScheduler(eval_bleu, options.key_type, options.key,
+      int(options.entries), int(options.processes), int(options.retries),
+      int(options.timeout))
   scheduler.run()
 
 if __name__ == "__main__":
