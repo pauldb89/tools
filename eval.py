@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import os, sys, time
 from multiprocessing import Process, Queue
 from optparse import OptionParser
@@ -20,17 +22,18 @@ def extract_common_phrases(reference, translation):
 
 def eval_bleu(key, index):
   index = str(index)
+  tmp_file = "evals/" + key + "-" + index + ".tmp"
   os.system("""sed -n """ + index + """,""" + index + """p \
       data/wmt09/en-de/clean/experiments/dev-""" + key + """-grammars.sgm \
-      > """ + key + """-""" + index + """.tmp""")
+      > """ + tmp_file)
 
   os.system("rm -r evals/eval." + key + "-" + index + ".* 2> /dev/null")
+
   os.system("""workspace/cdec/training/utils/decode-and-evaluate.pl \
       -d evals/ \
-      -c data/wmt09/en-de/clean/experiments/cdec.ini \
+      -c data/wmt09/en-de/clean/experiments/cdec_small.ini \
       -w data/wmt09/en-de/clean/experiments/mira-""" + key + """/weights.final \
-      -i """ + key + """-""" + index + """.tmp 2> /dev/null \
-      | grep BLEU= | sed -E s/\ +BLEU=//""")
+      -i """ + tmp_file + " 2> /dev/null | grep BLEU= | sed -E s/\ +BLEU=//""")
 
   root_dir = "evals/" + key + "-" + index;
   os.system("mv evals/eval." + key + "-" + index + ".*/ " + root_dir)
@@ -39,6 +42,7 @@ def eval_bleu(key, index):
   translation = open(root_dir + "/test.trans").read()
   print index, extract_common_phrases(reference, translation)
   os.system("rm -r " + root_dir)
+  os.system("rm " + tmp_file)
 
 class TimedProcess(Process):
   def __init__(self, function, task, timeout):
@@ -71,8 +75,9 @@ class TaskScheduler:
     self.timeout = timeout
 
   def cleanup(self):
-    os.system("ps ax | grep sentserver | awk '{print $1}' | xargs kill")
-    os.system("ps ax | grep parallelize | awk '{print $1}' | xargs kill")
+    os.system("ps ax | grep paulb | grep sentserver | awk '{print $1}' | xargs kill")
+    os.system("ps ax | grep paulb | grep parallelize | awk '{print $1}' | xargs kill")
+    os.system("ps ax | grep paulb | grep decoder/cdec | awk '{print $1}' | xargs kill")
 
   def run(self):
     queue = Queue()
@@ -83,6 +88,7 @@ class TaskScheduler:
     num_alive_processes = 0
     processes = [None] * self.num_processes
     failed_indexes = []
+    time.sleep(1)
     while not queue.empty() or num_alive_processes:
       for i in range(len(processes)):
         if processes[i]:
