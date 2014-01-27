@@ -1,7 +1,14 @@
 #!/usr/bin/python
 
-import os, sys, time
-from multiprocessing import Process, Queue
+import os
+import sys
+import time
+import re
+import subprocess
+import psutil
+import signal
+import multiprocessing
+from multiprocessing import Process, Queue, Lock
 from optparse import OptionParser
 
 def list_phrases(sentence):
@@ -20,40 +27,81 @@ def extract_common_phrases(reference, translation):
 
   return common_phrases
 
-def eval_bleu(key_type, key, index):
+def extract_bleu_score(scoring):
+  return re.search("BLEU=(\d.\d+|\d)", scoring).group(1)
+
+def create_subprocess(command, stdout=None, stderr=None, shell=False):
+  current_process = multiprocessing.current_process()
+  current_process.subprocess = subprocess.Popen(
+      command, stdout=stdout, stderr=stderr, shell=shell)
+  current_process.subprocess.wait()
+
+def eval_bleu(key_type, key, index, lock):
   index = str(index)
+  devnull = open(os.devnull, 'w')
+
+  create_subprocess(
+      ["rm -r evals/eval." + key + "-" + index + ".*"],
+      stderr=devnull, shell=True)
+
   tmp_file = "evals/" + key + "-" + index + ".tmp"
-  os.system("sed -n " + index + "," + index + """p \
-      data/wmt09/en-de/clean/experiments/""" + key_type + "-" + key + """-grammars.sgm \
-      > """ + tmp_file)
+  create_subprocess(
+      ["sed", "-n", index + "," + index + "p",
+       "data/wmt09/en-de/clean/experiments/" + key_type + "-" + key + "-grammars.sgm"],
+       stdout=open(tmp_file, "w"))
 
-  os.system("rm -r evals/eval." + key + "-" + index + ".* 2> /dev/null")
-
-  os.system("""workspace/cdec/training/utils/decode-and-evaluate.pl \
-      -d evals/ \
-      -c data/wmt09/en-de/clean/experiments/cdec_small.ini \
-      -w data/wmt09/en-de/clean/experiments/mira-""" + key + """/weights.final \
-      -i """ + tmp_file + " 2> /dev/null | grep BLEU= | sed -E s/\ +BLEU=//""")
+  create_subprocess(
+      ["workspace/cdec/training/utils/decode-and-evaluate.pl",
+       "-d", "evals",
+       "-c", "data/wmt09/en-de/clean/experiments/cdec_small.ini",
+       "-w", "data/wmt09/en-de/clean/experiments/mira-" + key + "/weights.final",
+       "-i", tmp_file],
+       stdout=devnull, stderr=devnull)
 
   root_dir = "evals/" + key + "-" + index;
-  os.system("mv evals/eval." + key + "-" + index + ".*/ " + root_dir)
+  create_subprocess(
+      ["mv evals/eval." + key + "-" + index + ".*/ " + root_dir],
+      shell=True)
+
+  scoring = open(root_dir + "/test.scores").read()
+  bleu_score = extract_bleu_score(scoring)
 
   reference = open(root_dir + "/test.refs").read()
   translation = open(root_dir + "/test.trans").read()
-  print index, extract_common_phrases(reference, translation)
-  os.system("rm -r " + root_dir)
-  os.system("rm " + tmp_file)
+  common_phrases = extract_common_phrases(reference, translation)
+
+  lock.acquire()
+  print "bleu score:", index, bleu_score
+  print "common phrases:", index, common_phrases
+  lock.release()
+
+  create_subprocess(["rm", "-r", root_dir])
+  create_subprocess(["rm", tmp_file])
 
 class TimedProcess(Process):
-  def __init__(self, function, task, timeout):
+  def __init__(self, function, task, timeout, lock):
     super(TimedProcess, self).__init__(
-        target=function, args=(task.key_type, task.key, task.index))
+        target=function, args=(task.key_type, task.key, task.index, lock))
     self.task = task
     self.timeout = timeout
 
   def start(self):
     self.start_time = time.time()
     super(TimedProcess, self).start()
+
+  def run(self):
+    def terminate_subprocesses(num, frame):
+      if self.subprocess.poll() is None:
+        subprocess = psutil.Process(self.subprocess.pid)
+        for child_process in subprocess.get_children(recursive=True):
+          child_process.send_signal(signal.SIGTERM)
+        self.subprocess.terminate()
+
+      sys.exit()
+
+    signal.signal(signal.SIGTERM, terminate_subprocesses)
+
+    super(TimedProcess, self).run()
 
   def should_terminate(self, current_time):
     return self.start_time + self.timeout <= current_time
@@ -76,13 +124,9 @@ class TaskScheduler:
     self.max_retries = max_retries
     self.timeout = timeout
 
-  def cleanup(self):
-    os.system("ps ax | grep paulb | grep sentserver | awk '{print $1}' | xargs kill")
-    os.system("ps ax | grep paulb | grep parallelize | awk '{print $1}' | xargs kill")
-    os.system("ps ax | grep paulb | grep decoder/cdec | awk '{print $1}' | xargs kill")
-
   def run(self):
     queue = Queue()
+    lock = Lock()
     for i in range(1, self.num_entries + 1):
       queue.put(Task(self.key_type, self.key, i, 0))
 
@@ -115,7 +159,7 @@ class TaskScheduler:
 
         if not queue.empty() and not processes[i]:
             processes[i] = TimedProcess(
-                self.function, queue.get(), self.timeout)
+                self.function, queue.get(), self.timeout, lock)
             processes[i].start()
             num_alive_processes += 1
 
@@ -123,8 +167,6 @@ class TaskScheduler:
 
     sys.stderr.write("Total retries %d\n" % total_retries)
     sys.stderr.write("Failed task indexes: %s\n" % str(failed_indexes))
-
-    self.cleanup()
 
 def main():
   parser = OptionParser()
