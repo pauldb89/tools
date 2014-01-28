@@ -10,22 +10,7 @@ import signal
 import multiprocessing
 from multiprocessing import Process, Queue, Lock
 from optparse import OptionParser
-
-def list_phrases(sentence):
-  sentence = sentence.split()
-  for l in range(1, 5):
-    for i in range(len(sentence) - l + 1):
-      yield tuple(sentence[i: i+l])
-
-def extract_common_phrases(reference, translation):
-  reference_phrases = set([phrase for phrase in list_phrases(reference)])
-
-  common_phrases = []
-  for phrase in list_phrases(translation):
-    if phrase in reference_phrases:
-      common_phrases.append(phrase)
-
-  return common_phrases
+from fast_eval import extract_common_phrases
 
 def extract_bleu_score(scoring):
   return re.search("BLEU=(\d.\d+|\d)", scoring).group(1)
@@ -53,6 +38,7 @@ def eval_bleu(key_type, key, index, lock):
   create_subprocess(
       ["workspace/cdec/training/utils/decode-and-evaluate.pl",
        "-d", "evals",
+       "-j", "1",
        "-c", "data/wmt09/en-de/clean/experiments/cdec.ini",
        "-w", "data/wmt09/en-de/clean/experiments/mira-" + key + "/weights.final",
        "-i", tmp_file],
