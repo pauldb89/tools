@@ -53,7 +53,7 @@ def eval_bleu(key_type, key, index, lock):
   create_subprocess(
       ["workspace/cdec/training/utils/decode-and-evaluate.pl",
        "-d", "evals",
-       "-c", "data/wmt09/en-de/clean/experiments/cdec_small.ini",
+       "-c", "data/wmt09/en-de/clean/experiments/cdec.ini",
        "-w", "data/wmt09/en-de/clean/experiments/mira-" + key + "/weights.final",
        "-i", tmp_file],
        stdout=devnull, stderr=devnull)
